@@ -1,32 +1,47 @@
 package server
 
+
 import (
 	"net/http"
 	"time"
 	"log"
 	"os"
 	"strconv"
-	"fmt"
+	"utilities"
+	"golang.org/x/net/context"
+	"regexp"
 )
 
-var (
-	DevelopmentApplication = Application {
-		environment: DEVELOPMENT,
-		routes: map[],
-	}
-	ProductionApplication = Application {
-		environment: PRODUCTION,
-		routes: ApplicationRoutes,
-	}
-)
 
-func (app Application) Settings () Settings {
-	return EnvironmentSettings[app.environment]
+// Application Settings
+
+type KeySettings struct {
+		 SelfSign bool
+		 CertFile string
+		 KeyFile  string
+		 CSR      utilities.CertificateSigningRequest }
+
+type PortSettings map[Protocol]int
+
+type ApplicationSettings struct {
+	Keys				KeySettings
+	Ports				PortSettings
+	DefaultHost	string
+}
+
+
+// Application
+
+type Application struct {
+	Configuration ApplicationSettings
+	Router Router
+	compiledRouter CompiledRouter
+	compiledContext context.Context
 }
 
 
 func (app Application) EnsureCertificates () {
-	var keySettings = app.Settings().Keys
+	var keySettings = app.Configuration.Keys
 
 	var _, maybeCertError = os.Stat(keySettings.CertFile)
 	var _, maybeKeyError = os.Stat(keySettings.KeyFile)
@@ -36,7 +51,7 @@ func (app Application) EnsureCertificates () {
 		println("Missing one of (%s, %s).", keySettings.CertFile, keySettings.KeyFile)
 		if keySettings.SelfSign {
 			println("Auto-generating...")
-			Sign(keySettings.CSR, keySettings.CertFile, keySettings.KeyFile)
+			utilities.Sign(keySettings.CSR, keySettings.CertFile, keySettings.KeyFile)
 			println("Done.")
 		} else {
 			log.Fatal("Missing Certificates.")
@@ -44,62 +59,111 @@ func (app Application) EnsureCertificates () {
 	} else {
 		println("Found certificates.")
 	}
-
 }
 
 
-func (app Application) handlers () map[HTTPProtocol]http.Handler {
-	var handlers = map[HTTPProtocol]http.Handler { }
-	var ports = app.Settings().Ports
-	for _, protocol := range [2]HTTPProtocol { HTTP, HTTPS } {
-		var port = ports[protocol]
-		var server_multiplexer = http.NewServeMux()
-		for host, hostRoutes := range app.routes[protocol] {
-			for pattern, handler := range hostRoutes {
-				var host_pattern = ""
-				if (protocol == HTTP && port != 80) || (protocol == HTTPS && port != 443){
-					host_pattern = fmt.Sprintf("%s:%s%s", string(host), strconv.Itoa(port), string(pattern))
-				} else {
-					host_pattern = fmt.Sprintf("%s%s", string(host), string(pattern))
-				}
-
-
-				server_multiplexer.HandleFunc(host_pattern, handler)
-			}
-		}
-		handlers[protocol] = server_multiplexer
+func (app Application) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if app.compiledContext == nil {
+		app.compile()
 	}
-	return handlers
+
+	var protocol Protocol
+	if r.TLS != nil {
+		protocol = HTTPS
+	} else {
+		protocol = HTTP
+	}
+
+	println("Check URL", r.URL.String(), "::", r.URL.Host)
+	var hostname string
+	if r.URL.Host == "" {
+		hostname = app.Configuration.DefaultHost
+	} else {
+		hostname, _  = utilities.SplitHost(r.URL.Host, -1)
+	}
+
+	println("Hostname is", hostname)
+
+
+	var longest_matched_subgroups []string
+	var longest_match_length int
+	var longest_match_service *Service = nil
+
+	for _, route := range app.compiledRouter[protocol][Hostname(hostname)] {
+		subgroups := route.Pattern.FindStringSubmatch(r.URL.Path)
+		if subgroups != nil && len(subgroups[0]) > longest_match_length {
+			longest_matched_subgroups = subgroups
+			longest_match_length = len(subgroups[0])
+			longest_match_service = &route.Service
+		}
+	}
+
+	println("?", r.URL.String())
+	if longest_match_service != nil {
+		handler := longest_match_service.GetHandler(r)
+		if handler != nil {
+			context := context.WithValue(app.compiledContext, "groups", longest_matched_subgroups)
+			handler(w, r, context)
+		} else {
+			http.Error(w, "INVALID METHOD!!!", 404)
+			println("!", r.URL, "INVALID METHOD!!!")
+		}
+	} else {
+		http.Error(w, "NOT FOUND!!!", 404)
+		println("!", r.URL.String(), "NOT FOUND!!!")
+	}
 }
 
 
 func (app Application) Start () {
+	app.compile()
 	app.EnsureCertificates()
 
-	var settings = app.Settings()
-	var handlers = app.handlers()
+	var configuration = app.Configuration
 
 	var httpServer = &http.Server{
-			Addr:           ":" + strconv.Itoa(settings.Ports[HTTP]),
-			Handler:        handlers[HTTP],
+			Addr:           ":" + strconv.Itoa(configuration.Ports[HTTP]),
+			Handler:        app,
 			ReadTimeout:    10 * time.Second,
 			WriteTimeout:   10 * time.Second,
 			MaxHeaderBytes: 1 << 20,
 		}
 
-	log.Print("Starting HTTP Server at ", settings.Ports[HTTP])
+	log.Print("Starting HTTP Server at ", configuration.Ports[HTTP])
 	go httpServer.ListenAndServe()
 
 
 	var httpsServer = &http.Server{
-			Addr:           ":" + strconv.Itoa(settings.Ports[HTTPS]),
-			Handler:        handlers[HTTPS],
+			Addr:           ":" + strconv.Itoa(configuration.Ports[HTTPS]),
+			Handler:        app,
 			ReadTimeout:    10 * time.Second,
 			WriteTimeout:   10 * time.Second,
 			MaxHeaderBytes: 1 << 20,
 		}
 
-	log.Print("Starting HTTPS Server at ", settings.Ports[HTTPS])
-	log.Fatal(httpsServer.ListenAndServeTLS(settings.Keys.CertFile, settings.Keys.KeyFile))
+	log.Print("Starting HTTPS Server at ", configuration.Ports[HTTPS])
+	log.Fatal(httpsServer.ListenAndServeTLS(configuration.Keys.CertFile, configuration.Keys.KeyFile))
 
+}
+
+
+// Appendix
+
+func (app Application) compile() {
+	app.compiledContext = context.WithValue(context.Background(), "Application", app)
+
+	app.compiledRouter = make(CompiledRouter)
+	for protocol, hosts := range app.Router {
+		if app.compiledRouter[protocol] == nil {
+			app.compiledRouter[protocol] = make(map[Hostname] []Route)
+		}
+		for host, patterns := range hosts {
+			for pattern, service := range patterns {
+				app.compiledRouter[protocol][host] = append(app.compiledRouter[protocol][host], Route {
+					Pattern: regexp.MustCompile(string(pattern)),
+					Service: service,
+				})
+			}
+		}
+	}
 }

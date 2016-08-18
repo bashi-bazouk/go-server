@@ -1,15 +1,26 @@
-package settings
+package configuration
+
+import (
+	"utilities"
+	. "server"
+)
+
+// Environment = Development | Production
+type Environment int
+const (
+	DEVELOPMENT Environment = iota
+	PRODUCTION
+)
 
 
-
-var EnvironmentSettings = map[Environment]Settings {
+var EnvironmentSettings = map[Environment]ApplicationSettings{
 
 	DEVELOPMENT: {
 		Keys: KeySettings {
 			SelfSign: true,
 			CertFile: "dev-cert.pem",
 			KeyFile: "dev-key.pem",
-			CSR: CertificateSigningRequest {
+			CSR: utilities.CertificateSigningRequest {
 				Host:      "brianledger.net,softarc.net",
 				ValidFrom: "Jan 8 00:00:00 1988",
 				ValidFor:  1 << 20,
@@ -21,6 +32,7 @@ var EnvironmentSettings = map[Environment]Settings {
 			HTTP: 8080,
 			HTTPS: 4430,
 		},
+		DefaultHost: "brianledger.net",
 	},
 
 	PRODUCTION: {
@@ -33,8 +45,7 @@ var EnvironmentSettings = map[Environment]Settings {
 			HTTP: 80,
 			HTTPS: 443,
 		},
+		DefaultHost: "brianledger.net",
 	},
 
 }
-
-

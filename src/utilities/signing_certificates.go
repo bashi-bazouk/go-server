@@ -7,7 +7,7 @@
 // Generate a self-signed X.509 certificate for a TLS server. Outputs to
 // 'cert.pem' and 'key.pem' and will overwrite existing files.
 
-package server
+package utilities
 
 import (
 	"math/big"
@@ -25,6 +25,17 @@ import (
 	"crypto/x509/pkix"
 	"crypto/rand"
 )
+
+// Miscellaneous
+
+type CertificateSigningRequest struct {
+	Host       string
+	ValidFrom  string
+	ValidFor   time.Duration
+	IsCA       bool
+	RSABits    int
+	ECDSACurve string
+}
 
 func publicKey(priv interface{}) interface{} {
 	switch k := priv.(type) {
