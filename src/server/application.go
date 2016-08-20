@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"utilities"
 	"golang.org/x/net/context"
-	"regexp"
 )
 
 
@@ -35,8 +34,32 @@ type ApplicationSettings struct {
 type Application struct {
 	Configuration ApplicationSettings
 	Router Router
-	compiledRouter CompiledRouter
-	compiledContext context.Context
+	compiledRouter *CompiledRouter
+	compiledContext *context.Context
+}
+
+
+func NewApplication(configuration ApplicationSettings, router Router) (app Application) {
+	app.Configuration = configuration
+	app.Router = router
+
+	compiledContext := context.WithValue(context.Background(), "Application", app)
+	app.compiledContext = &compiledContext
+
+	var compiledRouter = make(CompiledRouter)
+	for protocol, hosts := range router {
+		var routesByHost = make(map[Hostname] []CompiledRoute)
+		for host, routes := range hosts {
+			for _, route := range routes {
+				routesByHost[host] = append(routesByHost[host], route.Compile())
+			}
+		}
+		compiledRouter[protocol] = routesByHost
+	}
+
+	app.compiledRouter = &compiledRouter
+
+	return app
 }
 
 
@@ -63,9 +86,6 @@ func (app Application) EnsureCertificates () {
 
 
 func (app Application) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if app.compiledContext == nil {
-		app.compile()
-	}
 
 	var protocol Protocol
 	if r.TLS != nil {
@@ -76,7 +96,7 @@ func (app Application) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	println("Check URL", r.URL.String(), "::", r.URL.Host)
 	var hostname string
-	if r.URL.Host == "" {
+	if r.Host == "localhost" {
 		hostname = app.Configuration.DefaultHost
 	} else {
 		hostname, _  = utilities.SplitHost(r.URL.Host, -1)
@@ -84,39 +104,27 @@ func (app Application) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	println("Hostname is", hostname)
 
-
-	var longest_matched_subgroups []string
-	var longest_match_length int
-	var longest_match_service *Service = nil
-
-	for _, route := range app.compiledRouter[protocol][Hostname(hostname)] {
-		subgroups := route.Pattern.FindStringSubmatch(r.URL.Path)
-		if subgroups != nil && len(subgroups[0]) > longest_match_length {
-			longest_matched_subgroups = subgroups
-			longest_match_length = len(subgroups[0])
-			longest_match_service = &route.Service
-		}
-	}
-
 	println("?", r.URL.String())
-	if longest_match_service != nil {
-		handler := longest_match_service.GetHandler(r)
-		if handler != nil {
-			context := context.WithValue(app.compiledContext, "groups", longest_matched_subgroups)
+	println("Got something...", (*app.compiledRouter)[protocol])
+	for _, route := range (*app.compiledRouter)[protocol][Hostname(hostname)] {
+		subgroups := route.Pattern.FindStringSubmatch(r.URL.Path)
+		if subgroups != nil {
+			context := context.WithValue(*app.compiledContext, "groups", subgroups)
+			handler := route.Service.GetHandler(r)
+			println("!", "Found a handler!")
 			handler(w, r, context)
-		} else {
-			http.Error(w, "INVALID METHOD!!!", 404)
-			println("!", r.URL, "INVALID METHOD!!!")
+			println("Done")
+			return
 		}
-	} else {
-		http.Error(w, "NOT FOUND!!!", 404)
-		println("!", r.URL.String(), "NOT FOUND!!!")
 	}
+
+	println("!", r.URL.String(), "404 Not Found")
+	http.Error(w, "404 Not Found", 404)
+
 }
 
 
 func (app Application) Start () {
-	app.compile()
 	app.EnsureCertificates()
 
 	var configuration = app.Configuration
@@ -144,26 +152,4 @@ func (app Application) Start () {
 	log.Print("Starting HTTPS Server at ", configuration.Ports[HTTPS])
 	log.Fatal(httpsServer.ListenAndServeTLS(configuration.Keys.CertFile, configuration.Keys.KeyFile))
 
-}
-
-
-// Appendix
-
-func (app Application) compile() {
-	app.compiledContext = context.WithValue(context.Background(), "Application", app)
-
-	app.compiledRouter = make(CompiledRouter)
-	for protocol, hosts := range app.Router {
-		if app.compiledRouter[protocol] == nil {
-			app.compiledRouter[protocol] = make(map[Hostname] []Route)
-		}
-		for host, patterns := range hosts {
-			for pattern, service := range patterns {
-				app.compiledRouter[protocol][host] = append(app.compiledRouter[protocol][host], Route {
-					Pattern: regexp.MustCompile(string(pattern)),
-					Service: service,
-				})
-			}
-		}
-	}
 }
