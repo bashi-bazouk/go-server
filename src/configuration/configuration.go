@@ -33,6 +33,7 @@ var EnvironmentSettings = map[Environment]ApplicationSettings{
 			HTTPS: 4430,
 		},
 		DefaultHost: "brianledger.net",
+		StaticDirectory: "src/static",
 	},
 
 	PRODUCTION: {
@@ -46,6 +47,7 @@ var EnvironmentSettings = map[Environment]ApplicationSettings{
 			HTTPS: 443,
 		},
 		DefaultHost: "brianledger.net",
+		StaticDirectory: "src/static",
 	},
 
 }

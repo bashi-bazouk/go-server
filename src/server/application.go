@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"utilities"
 	"golang.org/x/net/context"
+	"fmt"
 )
 
 
@@ -23,9 +24,10 @@ type KeySettings struct {
 type PortSettings map[Protocol]int
 
 type ApplicationSettings struct {
-	Keys				KeySettings
-	Ports				PortSettings
-	DefaultHost	string
+	Keys						KeySettings
+	Ports						PortSettings
+	DefaultHost			string
+	StaticDirectory string
 }
 
 
@@ -71,7 +73,7 @@ func (app Application) EnsureCertificates () {
 
 	if os.IsNotExist(maybeCertError) || os.IsNotExist(maybeKeyError) {
 		// Certificate or Key is missing.
-		println("Missing one of (%s, %s).", keySettings.CertFile, keySettings.KeyFile)
+		println(fmt.Sprintf("Missing one of (%s, %s).", keySettings.CertFile, keySettings.KeyFile))
 		if keySettings.SelfSign {
 			println("Auto-generating...")
 			utilities.Sign(keySettings.CSR, keySettings.CertFile, keySettings.KeyFile)
@@ -79,8 +81,6 @@ func (app Application) EnsureCertificates () {
 		} else {
 			log.Fatal("Missing Certificates.")
 		}
-	} else {
-		println("Found certificates.")
 	}
 }
 
@@ -94,26 +94,19 @@ func (app Application) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		protocol = HTTP
 	}
 
-	println("Check URL", r.URL.String(), "::", r.URL.Host)
-	var hostname string
-	if r.Host == "localhost" {
+	hostname := ReadHostname(r)
+	if hostname == "localhost" {
 		hostname = app.Configuration.DefaultHost
-	} else {
-		hostname, _  = utilities.SplitHost(r.URL.Host, -1)
 	}
 
-	println("Hostname is", hostname)
-
 	println("?", r.URL.String())
-	println("Got something...", (*app.compiledRouter)[protocol])
 	for _, route := range (*app.compiledRouter)[protocol][Hostname(hostname)] {
 		subgroups := route.Pattern.FindStringSubmatch(r.URL.Path)
 		if subgroups != nil {
 			context := context.WithValue(*app.compiledContext, "groups", subgroups)
 			handler := route.Service.GetHandler(r)
-			println("!", "Found a handler!")
-			handler(w, r, context)
-			println("Done")
+			println("!", r.URL.String())
+			handler(w, r, &context)
 			return
 		}
 	}

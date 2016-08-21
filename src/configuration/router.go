@@ -8,36 +8,32 @@ import (
 var ApplicationRouter = Router {
 	HTTP: map[Hostname] []Route {
 		"brianledger.net": []Route {
-			{ "/(.*)", ServeStatic("src/static"), },
+			{ "/(.*)", UpgradeToHTTPS, },
 		},
 		"softarc.net": []Route {
-			{ "/(.*)", ServeStatic("src/static"), },
+			{ "/(.*)", UpgradeToHTTPS, },
 		},
 		"client.run": []Route {
-			{ "/(.*)", ServeStatic("src/static"), },
+			{ "/(.*)", UpgradeToHTTPS, },
 		},
 		"devonshireyaw.com": []Route {
-			{ "/(.*)", ServeStatic("src/static"), },
+			{ "/(.*)", ServeStatic, },
 		},
 		"nwpaincenter.com": []Route {
-			{ "/(.*)", ServeStatic("src/static"), },
+			{ "/(.*)", ServeStatic, },
 		},
 	},
 	HTTPS: map[Hostname] []Route {
 		"brianledger.net": []Route {
-			{ "/(.*)", ServeStatic("src/static"), },
+			{ "/client.js", ServeClient("brianledger_public"), },
+			{ "/cdn/(.*)", ServeStatic, },
+			{ "/(.*)", ServeStatic, },
 		},
 		"softarc.net": []Route {
-			{ "/(.*)", ServeStatic("src/static"), },
+			{ "/(.*)", ServeStatic, },
 		},
 		"client.run": []Route {
-			{ "/(.*)", ServeStatic("src/static"), },
-		},
-		"devonshireyaw.com": []Route {
-			{ "/(.*)", ServeStatic("src/static"), },
-		},
-		"nwpaincenter.com": []Route {
-			{ "/(.*)", ServeStatic("src/static"), },
+			{ "/(.*)", ServeStatic, },
 		},
 	},
 }
