@@ -15,7 +15,6 @@ var ServeStatic Service = func() Service {
 		requestPath := (*c).Value("groups").([]string)[1]
 		workingDirectory, _ := os.Getwd()
 		fullPath := path.Join(workingDirectory, staticFolder, hostname, requestPath)
-		println("Serving file", fullPath)
 		ServeFile(w, r, fullPath)
 	}
 	return Service {

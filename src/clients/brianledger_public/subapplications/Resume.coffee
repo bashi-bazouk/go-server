@@ -24,6 +24,7 @@ class exports.Resume extends SubApplication
 
 
 	close: (callback) =>
+		console.log "closing!"
 		return callback?() if @pure.css('width') == "0px"
 		@pure.animate {
 			'max-width': 0

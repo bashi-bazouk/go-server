@@ -7,15 +7,18 @@ import (
 	"strconv"
 	"path"
 	"utilities"
+	"math/rand"
 )
 
 func HandleUpgradeToHTTPS(w http.ResponseWriter, r *http.Request, c *context.Context) {
 	url := r.URL
 	url.Scheme = "https"
 
-	httpsPort, _ := (*c).Value("Application").(Application).Configuration.Ports[HTTPS]
-	if httpsPort != 443 {
-		url.Host = ReadHostname(r) + ":" + strconv.Itoa(httpsPort)
+	httpsPorts, _ := (*c).Value("Application").(Application).Configuration.Ports[HTTPS]
+	if len(httpsPorts) > 0 {
+		url.Host = ReadHostname(r.Host) + ":" + strconv.Itoa(rand.Intn(len(httpsPorts)))
+	} else {
+		http.NotFound(w, r)
 	}
 
 	http.Redirect(w, r, url.String(), 301)
@@ -44,6 +47,5 @@ func Link(pathFromRoot string) Service {
 
 
 func ServeClient (clientName string) Service {
-	println("gonna serve", path.Join(utilities.Root, "src/clients", clientName + ".js"))
 	return Link(path.Join("src/clients", clientName + ".js"))
 }

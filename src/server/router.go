@@ -2,7 +2,32 @@ package server
 
 import (
 	"regexp"
+	"strings"
+	"fmt"
 )
+
+type Protocol int
+const (
+	HTTP Protocol = iota
+	HTTPS
+)
+
+func (p Protocol) String () string {
+	switch p {
+	case HTTP: return "HTTP"
+	case HTTPS: return "HTTPS"
+	default: panic("Invalid Protocol")
+	}
+}
+
+func ReadProtocol (s string) Protocol {
+	switch strings.ToUpper(s) {
+	case "HTTP": return HTTP
+	case "HTTPS": return HTTPS
+	default:
+		panic(fmt.Sprintf("Invalid Protocol string: \"%s\"", s))
+	}
+}
 
 type Hostname string
 

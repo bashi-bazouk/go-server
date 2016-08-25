@@ -5,6 +5,7 @@
 { MessageBoard } = require("./subapplications/message_board/MessageBoard.coffee")
 { Resume } = require("./subapplications/Resume.coffee")
 { Authenticator } = require("./subapplications/authenticator/Authenticator.coffee")
+{ PeerGraph } = require("./subapplications/peer_graph/PeerGraph.coffee")
 
 class exports.Application extends SubApplication
 
@@ -18,6 +19,7 @@ class exports.Application extends SubApplication
 		message_board: MessageBoard
 		resume: Resume
 		authenticator: Authenticator
+		peer_graph: PeerGraph
 
 
 	constructor: () ->
@@ -37,6 +39,7 @@ class exports.Application extends SubApplication
 						<a href="/message_board/">Message Board</a>
 						<a href="/resume/">Résumé</a>
 						<a href="/sign_in/">Sign In</a>
+						<a href="/peer_graph/">Peer Graph</a>
 					</div>
 
 				</div>
@@ -79,6 +82,9 @@ class exports.Application extends SubApplication
 				when "sign_up"
 					@authenticator.reset()
 					@authenticator.open()
+				when "peer_graph"
+					@peer_graph.reset()
+					@peer_graph.open()
 				else
 					console.warn("Unrecognized route: %s", route)
 

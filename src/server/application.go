@@ -2,7 +2,7 @@ package server
 
 
 import (
-	"net/http"
+	. "net/http"
 	"time"
 	"log"
 	"os"
@@ -10,43 +10,43 @@ import (
 	"utilities"
 	"golang.org/x/net/context"
 	"fmt"
+	"runtime"
 )
 
 
 // Application Settings
-
 type KeySettings struct {
 		 SelfSign bool
 		 CertFile string
 		 KeyFile  string
 		 CSR      utilities.CertificateSigningRequest }
 
-type PortSettings map[Protocol]int
+type PortSettings map[Protocol][]int
 
 type ApplicationSettings struct {
-	Keys						KeySettings
-	Ports						PortSettings
-	DefaultHost			string
+	Keys            KeySettings
+	Ports           PortSettings
 	StaticDirectory string
+	MainHost        string
 }
 
 
 // Application
 
 type Application struct {
-	Configuration ApplicationSettings
-	Router Router
-	compiledRouter *CompiledRouter
+	Configuration   ApplicationSettings
+	Router          Router
+	compiledRouter  *CompiledRouter
 	compiledContext *context.Context
 }
 
 
-func NewApplication(configuration ApplicationSettings, router Router) (app Application) {
-	app.Configuration = configuration
-	app.Router = router
+func NewApplication(configuration ApplicationSettings, router Router) (ws Application) {
+	ws.Configuration = configuration
+	ws.Router = router
 
-	compiledContext := context.WithValue(context.Background(), "Application", app)
-	app.compiledContext = &compiledContext
+	compiledContext := context.WithValue(context.Background(), "Application", ws)
+	ws.compiledContext = &compiledContext
 
 	var compiledRouter = make(CompiledRouter)
 	for protocol, hosts := range router {
@@ -59,14 +59,14 @@ func NewApplication(configuration ApplicationSettings, router Router) (app Appli
 		compiledRouter[protocol] = routesByHost
 	}
 
-	app.compiledRouter = &compiledRouter
+	ws.compiledRouter = &compiledRouter
 
-	return app
+	return ws
 }
 
 
-func (app Application) EnsureCertificates () {
-	var keySettings = app.Configuration.Keys
+func (ws Application) EnsureCertificates () {
+	var keySettings = ws.Configuration.Keys
 
 	var _, maybeCertError = os.Stat(keySettings.CertFile)
 	var _, maybeKeyError = os.Stat(keySettings.KeyFile)
@@ -85,7 +85,7 @@ func (app Application) EnsureCertificates () {
 }
 
 
-func (app Application) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (ws Application) ServeHTTP(w ResponseWriter, r *Request) {
 
 	var protocol Protocol
 	if r.TLS != nil {
@@ -94,55 +94,95 @@ func (app Application) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		protocol = HTTP
 	}
 
-	hostname := ReadHostname(r)
+	hostname := ReadHostname(r.Host)
 	if hostname == "localhost" {
-		hostname = app.Configuration.DefaultHost
+		hostname = ws.Configuration.MainHost
 	}
 
 	println("?", r.URL.String())
-	for _, route := range (*app.compiledRouter)[protocol][Hostname(hostname)] {
+	for _, route := range (*ws.compiledRouter)[protocol][Hostname(hostname)] {
 		subgroups := route.Pattern.FindStringSubmatch(r.URL.Path)
 		if subgroups != nil {
-			context := context.WithValue(*app.compiledContext, "groups", subgroups)
+			context := context.WithValue(*ws.compiledContext, "groups", subgroups)
 			handler := route.Service.GetHandler(r)
-			println("!", r.URL.String())
 			handler(w, r, &context)
 			return
 		}
 	}
 
 	println("!", r.URL.String(), "404 Not Found")
-	http.Error(w, "404 Not Found", 404)
+	Error(w, "404 Not Found", 404)
+
+}
+
+func (ws Application) SetParallelism () {
+
+	cpuCount := runtime.NumCPU()
+	configuration := ws.Configuration
+	endpoints := len(configuration.Ports[HTTP]) + len(configuration.Ports[HTTPS])
+
+	if cpuCount < endpoints {
+		log.Printf(fmt.Sprintln(
+			"CPU count, %i, is less than the number of endpoints, %i. " +
+			"Non-Uniform polling behavior may occur.", cpuCount, endpoints))
+	}
+
+	runtime.GOMAXPROCS(cpuCount)
+}
+
+func (ws Application) LaunchPeers () {
+
+	var configuration = ws.Configuration
+	var hostname = ws.Configuration.MainHost
+
+	httpPortCount := len(ws.Configuration.Ports[HTTP])
+
+	ports := append(ws.Configuration.Ports[HTTP], ws.Configuration.Ports[HTTPS]...)
+	portCount := len(ports)
+
+	for i, Port := range ports {
+		port := Port
+		var launcher func()
+		if i < httpPortCount {
+			launcher = func() {
+				var httpServer = &Server {
+					Addr:           ":" + strconv.Itoa(port),
+					Handler:        ws,
+					ReadTimeout:    10 * time.Second,
+					WriteTimeout:   10 * time.Second,
+					MaxHeaderBytes: 1 << 20,
+				}
+				log.Printf("Launching Low-Ground Peer at http://%s:%d.", hostname, port)
+				httpServer.ListenAndServe()
+			}
+		} else {
+			launcher = func() {
+				var httpsServer = &Server {
+					Addr:           ":" + strconv.Itoa(port),
+					Handler:        ws,
+					ReadTimeout:    10 * time.Second,
+					WriteTimeout:   10 * time.Second,
+					MaxHeaderBytes: 1 << 20,
+				}
+				log.Printf("Launching High-Ground Peer at https://%s:%d.", hostname, port)
+				httpsServer.ListenAndServeTLS(configuration.Keys.CertFile, configuration.Keys.KeyFile)
+			}
+		}
+
+		if i != portCount - 1 {
+			go launcher()
+		} else {
+			launcher()
+		}
+	}
 
 }
 
 
-func (app Application) Start () {
-	app.EnsureCertificates()
-
-	var configuration = app.Configuration
-
-	var httpServer = &http.Server{
-			Addr:           ":" + strconv.Itoa(configuration.Ports[HTTP]),
-			Handler:        app,
-			ReadTimeout:    10 * time.Second,
-			WriteTimeout:   10 * time.Second,
-			MaxHeaderBytes: 1 << 20,
-		}
-
-	log.Print("Starting HTTP Server at ", configuration.Ports[HTTP])
-	go httpServer.ListenAndServe()
-
-
-	var httpsServer = &http.Server{
-			Addr:           ":" + strconv.Itoa(configuration.Ports[HTTPS]),
-			Handler:        app,
-			ReadTimeout:    10 * time.Second,
-			WriteTimeout:   10 * time.Second,
-			MaxHeaderBytes: 1 << 20,
-		}
-
-	log.Print("Starting HTTPS Server at ", configuration.Ports[HTTPS])
-	log.Fatal(httpsServer.ListenAndServeTLS(configuration.Keys.CertFile, configuration.Keys.KeyFile))
+func (ws Application) Run() {
+	ws.EnsureCertificates()
+	ws.SetParallelism()
+	ws.LaunchPeers()
+	//localPeers := ws.LaunchPeers()
 
 }

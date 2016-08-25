@@ -10,11 +10,12 @@
   exports.Resume = (function(superClass) {
     extend(Resume, superClass);
 
-    function Resume(pure) {
-      this.pure = pure != null ? pure : $("<div id=\"resume\" style=\"max-width: 0px; max-height: 0px; padding: 0px; margin: 0px; border: none\">\n	<iframe src=\"/cdn/documents/Brian P Ledger Resume.pdf\"></iframe>\n</div>\n");
+    function Resume(application) {
+      this.application = application;
       this.is_closed = bind(this.is_closed, this);
       this.close = bind(this.close, this);
       this.open = bind(this.open, this);
+      this.pure = $("<div id=\"resume\" style=\"max-width: 0px; max-height: 0px; padding: 0px; margin: 0px; border: none\">\n	<iframe src=\"/cdn/documents/Brian P Ledger Resume.pdf\"></iframe>\n</div>");
     }
 
     Resume.prototype.open = function(callback) {
@@ -37,6 +38,7 @@
     };
 
     Resume.prototype.close = function(callback) {
+      console.log("closing!");
       if (this.pure.css('width') === "0px") {
         return typeof callback === "function" ? callback() : void 0;
       }

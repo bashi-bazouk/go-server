@@ -15,7 +15,7 @@ import (
 func main() {
 	println("♥")
 	go runWebpack(true)
-	NewApplication(EnvironmentSettings[DEVELOPMENT], ApplicationRouter).Start()
+	NewApplication(Settings[DEVELOPMENT], ApplicationRouter).Run()
 }
 
 
@@ -32,9 +32,7 @@ func runWebpack(suppress bool) {
 		var buf = make([]byte, 2048, 2048)
 		count, err := output.Read(buf)
 
-		println("oh shit wadup")
 		for count > 0 && err != io.EOF {
-			println("got buf...")
 			os.Stdout.Write(buf)
 			count, err = output.Read(buf)
 		}
